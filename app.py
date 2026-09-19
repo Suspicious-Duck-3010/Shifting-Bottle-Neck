@@ -9,7 +9,16 @@ st.set_page_config(page_title="Job Shop - Shifting Bottleneck Heuristic", layout
 if "jobs" not in st.session_state:
     st.session_state.jobs = {}   # job_id -> Job
 
-st.title("Job Shop Scheduling - Shifting Bottleneck Heuristic")
+title_col, reset_col = st.columns([5, 1])
+with title_col:
+    st.title("Job Shop Scheduling - Shifting Bottleneck Heuristic")
+with reset_col:
+    st.write("")
+    if st.button("Reset", help="Clear all saved jobs and results to start a new problem"):
+        st.session_state.jobs = {}
+        st.session_state.pop("result", None)
+        st.session_state.pop("initial_state", None)
+        st.rerun()
 
 st.markdown(
     "Enter each job's routing and processing times yourself. All scheduling "
