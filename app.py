@@ -121,14 +121,19 @@ if result:
     st.divider()
     st.header("3. Matrices")
 
+    max_steps = max(len(j.routing) for j in jobs_list)
+
+    def pad(seq):
+        return list(seq) + [None] * (max_steps - len(seq))
+
     st.subheader("Routing matrix (chronological machine order per job)")
     st.dataframe(pd.DataFrame(
-        {f"Job {j.job_id}": j.routing for j in jobs_list}
+        {f"Job {j.job_id}": pad(j.routing) for j in jobs_list}
     ).T.rename(columns=lambda c: f"Step {c+1}"), use_container_width=True)
 
     st.subheader("Processing time matrix (Pij, in routing order)")
     st.dataframe(pd.DataFrame(
-        {f"Job {j.job_id}": j.proc_times for j in jobs_list}
+        {f"Job {j.job_id}": pad(j.proc_times) for j in jobs_list}
     ).T.rename(columns=lambda c: f"Step {c+1}"), use_container_width=True)
 
     st.subheader("Per-machine Pij / rij / dij (from the INITIAL graph, before any disjunctive arcs)")
