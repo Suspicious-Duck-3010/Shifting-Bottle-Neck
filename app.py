@@ -504,11 +504,33 @@ if result:
         for row, m in enumerate(result["all_machines"]):
             y_ticks.append(row)
             y_labels.append(f"M{m}")
-            for d in machine_order_fn(m):
-                ax.barh(row, d["finish"] - d["start"], left=d["start"], height=0.6,
+
+            # Assign each op on this machine to a sub-lane (greedy interval
+            # coloring) so ops that overlap in time -- which can happen in
+            # the "naive" per-job chart that ignores machine conflicts --
+            # get stacked into separate lanes instead of drawn on top of
+            # each other with their labels colliding.
+            ops = sorted(machine_order_fn(m), key=lambda d: d["start"])
+            lane_ends = []
+            lanes = []
+            for d in ops:
+                lane_idx = next((i for i, end in enumerate(lane_ends) if d["start"] >= end), None)
+                if lane_idx is None:
+                    lane_idx = len(lane_ends)
+                    lane_ends.append(d["finish"])
+                else:
+                    lane_ends[lane_idx] = d["finish"]
+                lanes.append(lane_idx)
+
+            n_lanes = max(len(lane_ends), 1)
+            lane_h = 0.8 / n_lanes
+            fontsize = 8 if n_lanes == 1 else max(6, 8 - n_lanes)
+            for d, lane in zip(ops, lanes):
+                y = row - 0.4 + lane_h * (lane + 0.5)
+                ax.barh(y, d["finish"] - d["start"], left=d["start"], height=lane_h * 0.9,
                         color=job_color[d["job_id"]], edgecolor="black")
-                ax.text(d["start"] + (d["finish"] - d["start"]) / 2, row, f"J{d['job_id']}",
-                        ha="center", va="center", fontsize=8, color="white", fontweight="bold")
+                ax.text(d["start"] + (d["finish"] - d["start"]) / 2, y, f"J{d['job_id']}",
+                        ha="center", va="center", fontsize=fontsize, color="white", fontweight="bold")
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labels)
         ax.set_xlabel("Time")
