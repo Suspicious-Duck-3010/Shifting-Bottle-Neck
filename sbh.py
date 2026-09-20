@@ -12,6 +12,8 @@ comes from the graph/longest-path arithmetic below.
 from dataclasses import dataclass, field
 from itertools import permutations
 
+import matplotlib.pyplot as plt
+
 
 @dataclass
 class Job:
@@ -200,6 +202,111 @@ def solve_one_machine_lmax(ops):
     return best_seq, best_lmax, best_detail
 
 
+# Fixed grid spacing (in axes units) -- every node sits on this grid, never
+# on a data-dependent coordinate, so nodes can't collide or crowd together
+# regardless of processing-time values.
+GRID_X_GAP = 3.0    # horizontal distance between successive routing steps
+GRID_Y_GAP = 2.0     # vertical distance between job rows
+NODE_SIZE = 1900
+
+
+def draw_disjunctive_graph(jobs, fixed_machine_sequences, title=""):
+    """
+    Draws the disjunctive graph in its current state:
+      - solid directed arcs, labeled with weight: conjunctive arcs (always)
+        plus any disjunctive arcs already fixed for a machine
+      - dashed undirected lines, one color per machine: disjunctive pairs for
+        machines NOT yet in fixed_machine_sequences
+
+    Layout is a fixed grid, NOT time/head-based: each job is its own row
+    (spaced GRID_Y_GAP apart) and each routing step is its own column
+    (spaced GRID_X_GAP apart, left to right in that job's routing order).
+    This keeps nodes evenly spaced and arrows readable no matter what the
+    processing times are. Returns a matplotlib Figure.
+    """
+    adj = build_graph(jobs, fixed_machine_sequences)
+    jobs_by_id = {j.job_id: j for j in jobs}
+
+    n_rows = max(len(jobs), 1)
+    max_steps = max((len(j.routing) for j in jobs), default=1)
+    row_y = {j.job_id: (n_rows - 1 - i) * GRID_Y_GAP for i, j in enumerate(jobs)}
+    mid_y = (n_rows - 1) * GRID_Y_GAP / 2
+
+    def pos(node):
+        if node == SOURCE:
+            return (-1 * GRID_X_GAP, mid_y)
+        if node == SINK:
+            return (max_steps * GRID_X_GAP, mid_y)
+        _, jid, k = node
+        return (k * GRID_X_GAP, row_y[jid])
+
+    fig, ax = plt.subplots(figsize=(3 + GRID_X_GAP * (max_steps + 2),
+                                     1.4 * n_rows + 2))
+
+    # conjunctive arcs + any already-fixed disjunctive arcs: solid, directed
+    for u, edges in adj.items():
+        for v, w in edges:
+            x1, y1 = pos(u)
+            x2, y2 = pos(v)
+            ax.annotate(
+                "", xy=(x2, y2), xytext=(x1, y1),
+                arrowprops=dict(arrowstyle="-|>", color="black", lw=1.4,
+                                 shrinkA=26, shrinkB=26,
+                                 connectionstyle="arc3,rad=0.12" if y1 != y2 else "arc3,rad=0"),
+            )
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            offset = 0.18 if y1 == y2 else 0.0
+            ax.text(mx, my + GRID_Y_GAP * 0.12 + offset, str(w), fontsize=9,
+                    ha="center", va="bottom", color="#222",
+                    bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.85))
+
+    # disjunctive pairs not yet resolved: dashed, undirected, one color/machine
+    all_machines = sorted({m for j in jobs for m in j.routing})
+    colors = plt.cm.Set1.colors
+    for mi, m in enumerate(all_machines):
+        if m in fixed_machine_sequences:
+            continue
+        ops_on_m = [op_node(j.job_id, j.step_index_of_machine(m))
+                    for j in jobs if m in j.routing]
+        color = colors[mi % len(colors)]
+        for i in range(len(ops_on_m)):
+            for k in range(i + 1, len(ops_on_m)):
+                x1, y1 = pos(ops_on_m[i])
+                x2, y2 = pos(ops_on_m[k])
+                ax.plot([x1, x2], [y1, y2], linestyle="--", color=color,
+                        lw=1.4, alpha=0.85, zorder=1)
+        # legend entry
+        ax.plot([], [], linestyle="--", color=color, label=f"Machine {m} (unresolved)")
+
+    # node markers on top
+    for node in adj:
+        x, y = pos(node)
+        if node == SOURCE:
+            label = "U"
+        elif node == SINK:
+            label = "V"
+        else:
+            _, jid, k = node
+            job = jobs_by_id[jid]
+            m = job.machine_of_step(k)
+            label = f"J{jid}\nM{m}"
+        ax.scatter([x], [y], s=NODE_SIZE, color="#f4f4f4", edgecolor="black",
+                   linewidth=1.4, zorder=3)
+        ax.text(x, y, label, ha="center", va="center", fontsize=9, zorder=4)
+
+    if any(m not in fixed_machine_sequences for m in all_machines):
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08),
+                   ncol=min(len(all_machines), 4), fontsize=9, frameon=False)
+
+    ax.set_ylim(-GRID_Y_GAP, n_rows * GRID_Y_GAP)
+    ax.set_xlim(-2.2 * GRID_X_GAP, (max_steps + 1.2) * GRID_X_GAP)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(title, fontsize=12, pad=14)
+    fig.tight_layout()
+    return fig
+
+
 def run_shifting_bottleneck(jobs):
     """
     Full multi-iteration shifting bottleneck heuristic.
@@ -243,6 +350,7 @@ def run_shifting_bottleneck(jobs):
             job = next(j for j in jobs if j.job_id == jid)
             seq_nodes.append((jid, job.step_index_of_machine(bottleneck_machine)))
         fixed_sequences[bottleneck_machine] = seq_nodes
+        iterations[-1]["fixed_sequences_after"] = dict(fixed_sequences)
 
     final_state = compute_heads_tails(jobs, fixed_sequences)
     final_cmax = final_state["cmax"]
