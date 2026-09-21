@@ -169,15 +169,21 @@ def compute_heads_tails(jobs, fixed_machine_sequences):
 
 def solve_one_machine_lmax(ops):
     """
-    Exact solution of 1 || Lmax (single machine, release dates, no
-    preemption) via brute-force enumeration of job orders.
+    Exact solution of 1|rj|Lmax (single machine, release dates, no
+    preemption) via brute-force enumeration of ALL job orders -- this is
+    not a greedy EDD/deadline sort, so it does not silently assume a tie
+    in deadlines (dij) means a tie in the optimal schedule: with release
+    dates, order still changes completion times, so two jobs sharing a
+    deadline can still have only one truly-optimal relative order.
     ops: list of dict(job_id=, r=, p=, d=)
-    Returns (best_sequence_job_ids, best_Lmax, per_job_completion_and_lateness)
+    Returns (best_sequence_job_ids, best_Lmax, per_job_completion_and_lateness, all_optimal)
+    where all_optimal is a list of {"seq": [...], "detail": [...]} for
+    EVERY permutation that genuinely ties the best achievable Lmax (usually
+    just one entry, but more when a true tie exists).
     """
     n = len(ops)
-    best_seq = None
     best_lmax = None
-    best_detail = None
+    all_optimal = []
 
     for perm in permutations(range(n)):
         t = 0
@@ -194,12 +200,16 @@ def solve_one_machine_lmax(ops):
                 "job_id": o["job_id"], "start": start, "finish": finish,
                 "lateness": lateness,
             })
+        seq = [ops[idx]["job_id"] for idx in perm]
         if best_lmax is None or lmax < best_lmax:
             best_lmax = lmax
-            best_seq = [ops[idx]["job_id"] for idx in perm]
-            best_detail = detail
+            all_optimal = [{"seq": seq, "detail": detail}]
+        elif lmax == best_lmax:
+            all_optimal.append({"seq": seq, "detail": detail})
 
-    return best_seq, best_lmax, best_detail
+    best_seq = all_optimal[0]["seq"]
+    best_detail = all_optimal[0]["detail"]
+    return best_seq, best_lmax, best_detail, all_optimal
 
 
 # Fixed grid spacing (in axes units) -- every node sits on this grid, never
@@ -333,8 +343,11 @@ def run_shifting_bottleneck(jobs):
                         "p": state["durations"][(job.job_id, m)],
                         "d": state["deadlines"][(job.job_id, m)],
                     })
-            seq, lmax, detail = solve_one_machine_lmax(ops)
-            candidates[m] = {"ops": ops, "seq": seq, "lmax": lmax, "detail": detail}
+            seq, lmax, detail, all_optimal = solve_one_machine_lmax(ops)
+            candidates[m] = {
+                "ops": ops, "seq": seq, "lmax": lmax, "detail": detail,
+                "all_optimal": all_optimal,  # every sequence tying the best Lmax
+            }
 
         bottleneck_machine = max(candidates, key=lambda m: candidates[m]["lmax"])
         chosen = candidates[bottleneck_machine]

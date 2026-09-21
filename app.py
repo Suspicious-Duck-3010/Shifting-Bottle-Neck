@@ -104,7 +104,8 @@ def build_report_pdf(jobs_list, all_machines_present, initial_state, result):
             cand_sections = []
             for m, cand in it["candidates"].items():
                 marker = "  <-- CHOSEN (bottleneck)" if m == it["chosen_machine"] else ""
-                subtitle = f"Machine {m}: Lmax = {cand['lmax']}, sequence = {cand['seq']}{marker}"
+                subtitle = (f"Machine {m}: Lmax = {cand['lmax']}, sequence = {cand['seq']}"
+                            f"{tie_suffix(cand)}{marker}")
                 df = pd.DataFrame(cand["detail"]).rename(columns={
                     "job_id": "Job", "start": "Start", "finish": "Completion", "lateness": "Lateness",
                 })
@@ -140,6 +141,15 @@ def build_report_pdf(jobs_list, all_machines_present, initial_state, result):
 
     buf.seek(0)
     return buf.getvalue()
+
+
+def tie_suffix(cand):
+    """Note appended when more than one sequence genuinely ties the best Lmax."""
+    ties = cand.get("all_optimal", [])
+    if len(ties) <= 1:
+        return ""
+    others = ", ".join(str(t["seq"]) for t in ties[1:])
+    return f"  [{len(ties)}-way tie for this Lmax -- also optimal: {others}]"
 
 
 def fig_to_png_bytes(fig, dpi=150):
@@ -192,7 +202,7 @@ def build_report_markdown(jobs_list, all_machines_present, initial_state, result
         for m, cand in it["candidates"].items():
             marker = "  <-- CHOSEN (bottleneck)" if m == it["chosen_machine"] else ""
             lines.append(f"- Machine {m}: best achievable Lmax = **{cand['lmax']}**, "
-                          f"EDD-optimal sequence = {cand['seq']}{marker}")
+                          f"optimal sequence = {cand['seq']}{tie_suffix(cand)}{marker}")
             lines.append("")
             lines.append("  | Job | Start | Completion | Lateness |")
             lines.append("  |---|---|---|---|")
@@ -438,7 +448,11 @@ if result:
         for m, cand in it["candidates"].items():
             marker = "  <- CHOSEN (bottleneck)" if m == it["chosen_machine"] else ""
             st.markdown(f"Machine {m}: best achievable Lmax = **{cand['lmax']}**, "
-                        f"EDD-optimal sequence = {cand['seq']}{marker}")
+                        f"optimal sequence = {cand['seq']}{marker}")
+            if len(cand.get("all_optimal", [])) > 1:
+                others = ", ".join(str(t["seq"]) for t in cand["all_optimal"][1:])
+                st.info(f"{len(cand['all_optimal'])}-way tie for Lmax = {cand['lmax']} on this "
+                        f"machine -- these sequences are all equally optimal: {others}")
             detail_df = pd.DataFrame(cand["detail"]).rename(columns={
                 "job_id": "Job", "start": "Start", "finish": "Completion", "lateness": "Lateness",
             })
